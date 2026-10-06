@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ditar REQ</title>
+<style>
+  /* Página só de voz: sem nenhum dado da empresa. Escuta o número da REQ e devolve para o painel. */
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(900px 500px at 50% -10%,#14213f 0,#070b14 60%) fixed,#070b14;color:#e9eefb;font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+  main{width:100%;max-width:420px;text-align:center}
+  small{display:block;font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#ff8a3d}
+  h1{margin:4px 0 10px;font-size:30px;font-style:italic}
+  #msg{min-height:3.2em;margin:0 0 18px;color:#c9d4f0}
+  #texto{min-height:1.5em;margin:18px 0 6px;font:600 20px ui-monospace,Consolas,monospace;color:#fff;word-break:break-word}
+  button{width:150px;height:150px;border-radius:50%;border:7px solid #cfe6ff;cursor:pointer;color:#fff;font:800 15px/1.2 system-ui,sans-serif;background:radial-gradient(circle at 50% 22%,#9fd0ff 0,#3b8cf0 42%,#174f9e 100%);box-shadow:0 10px 0 #0c2f63,0 18px 30px rgba(0,0,0,.55),inset 0 -8px 14px rgba(0,0,0,.25),inset 0 7px 12px rgba(255,255,255,.35);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+  button svg{width:40px;height:40px}
+  button.ouvindo{border-color:#ffc4bb;background:radial-gradient(circle at 50% 22%,#ffa699 0,#ee3a2c 42%,#9c140b 100%);box-shadow:0 10px 0 #650c06,0 18px 30px rgba(0,0,0,.55);animation:pulsa 1.1s ease-out infinite}
+  @keyframes pulsa{to{box-shadow:0 10px 0 #650c06,0 0 0 24px rgba(255,90,70,0)}}
+  a.volta{display:inline-block;margin-top:18px;padding:12px 22px;border-radius:999px;border:1px solid #f26b1d;color:#ffd9bf;text-decoration:none;font-weight:700}
+  [hidden]{display:none!important}
+</style></head><body>
+<main>
+  <small>Compras · Montagem</small>
+  <h1>Ditar REQ</h1>
+  <p id="msg">Toque no botão e diga o número da REQ.</p>
+  <button id="mic" type="button" aria-label="Tocar e falar">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    <span id="mictx">Tocar e falar</span>
+  </button>
+  <div id="texto"></div>
+  <a id="volta" class="volta" hidden>Voltar ao painel</a>
+</main>
+<script>
+const PALAVRAS = {zero:0,um:1,uma:1,dois:2,duas:2,meia:6,tres:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,dez:10,onze:11,doze:12,treze:13,catorze:14,quatorze:14,quinze:15,
+  dezesseis:16,dezessete:17,dezoito:18,dezenove:19,vinte:20,trinta:30,quarenta:40,cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90,
+  cem:100,cento:100,duzentos:200,duzentas:200,trezentos:300,trezentas:300,quatrocentos:400,quatrocentas:400,quinhentos:500,quinhentas:500,
+  seiscentos:600,seiscentas:600,setecentos:700,setecentas:700,oitocentos:800,oitocentas:800,novecentos:900,novecentas:900};
+function falaParaNumeros(txt){
+  const bruto = String(txt||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[,.;:]/g,' | ').split(/\s+/).filter(Boolean);
+  // pontuação entre dígitos soltos ("meia, cinco, sete") é pausa na fala, não separação de REQs
+  const umDig = t => /^\d$/.test(t) || (PALAVRAS[t]!==undefined && PALAVRAS[t]<=9);
+  const tokens = bruto.filter((t,i)=>!(t==='|' && i>0 && i<bruto.length-1 && umDig(bruto[i-1]) && umDig(bruto[i+1])));
+  const SEP = new Set(['|','virgula','proxima','proximo','depois','mais','novo','outra','outro','ponto']);
+  const IGN = new Set(['e','a','o','de','da','do','req','reqs','requisicao','requisicoes','numero','numeros','buscar','pesquisar','procurar']);
+  const out=[]; let grupo=[];
+  const flush=()=>{
+    if(!grupo.length){return;}
+    // dígito a dígito: "seis cinco sete", "meia cinco sete", "6 5 7" (ou misturado) viram 657
+    const dig = t => /^\d$/.test(t) ? t : (PALAVRAS[t]!==undefined && PALAVRAS[t]<=9 ? String(PALAVRAS[t]) : null);
+    const ds = grupo.map(dig);
+    if(grupo.length>=2 && ds.every(x=>x!==null)){
+      const s = ds.join('');
+      // 6 ou 9 dígitos seguidos sem pausa = duas ou três REQs de 3 dígitos ("657 658")
+      if((s.length===6||s.length===9) && !/^0/.test(s)) s.match(/\d{3}/g).forEach(c=>out.push(parseInt(c,10))); else out.push(parseInt(s,10));
+      grupo=[]; return;
+    }
+    let cur=0,tot=0,teveCentena=false,achou=false;
+    for(const t of grupo){
+      if(/^\d+$/.test(t)){ if(achou){out.push(tot+cur); cur=tot=0; teveCentena=false; achou=false;} out.push(parseInt(t,10)); continue; }
+      if(t==='mil'){ tot += (cur||1)*1000; cur=0; achou=true; continue; }
+      const v=PALAVRAS[t]; if(v===undefined) continue;
+      if(v>=100){ if(teveCentena){ out.push(tot+cur); cur=tot=0; } teveCentena=true; }
+      cur+=v; achou=true;
+    }
+    if(achou) out.push(tot+cur);
+    grupo=[];
+  };
+  for(const t of tokens){
+    if(SEP.has(t)){flush();continue;}
+    if(IGN.has(t)) continue;
+    if(/^\d+$/.test(t)||PALAVRAS[t]!==undefined||t==='mil') grupo.push(t);   // outras palavras (busque, por favor…) são ignoradas
+  }
+  flush();
+  return [...new Set(out.filter(n=>n>0))];
+}
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let volta = params.get('volta') || '';
+// só devolve para endereços conhecidos (evita redirecionar para sites desconhecidos)
+const PERMITIDOS = [/^https:\/\/script\.google\.com\//i, /^https:\/\/[a-z0-9-]+\.schiffer\.com\.br\//i, /^https:\/\/claude\.ai\//i, /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i];
+if(!PERMITIDOS.some(r=>r.test(volta))) volta='';
+const ua=navigator.userAgent||'', IOS=/iPhone|iPad|iPod/.test(ua), ANDROID=/Android/.test(ua);
+let reco=null;
+
+function destino(nums){ return volta + (volta.includes('?')?'&':'?') + 'req=' + encodeURIComponent(nums.join(',')); }
+function mostrarVolta(nums){ const a=$('volta'); if(volta){ a.href=destino(nums||[]); a.hidden=false; } }
+function erro(txt){ $('msg').textContent=txt; $('mic').classList.remove('ouvindo'); $('mictx').textContent='Tocar e falar'; reco=null; mostrarVolta(); }
+
+function ouvir(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ erro('Este navegador não tem reconhecimento de voz. Use o Chrome (Android) ou o Safari (iPhone), ou volte ao painel e use o microfone do teclado.'); return; }
+  if(reco){ reco.stop(); return; }
+  reco = new SR(); reco.lang='pt-BR'; reco.interimResults=true; reco.continuous=false; reco.maxAlternatives=1;
+  let final='', parcial='';
+  $('mic').classList.add('ouvindo'); $('mictx').textContent='Ouvindo…'; $('texto').textContent='';
+  $('msg').textContent='Se aparecer o pedido de microfone, toque em Permitir. Depois diga o número da REQ.';
+  reco.onresult=e=>{ parcial=''; for(let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; if(r.isFinal) final+=' '+r[0].transcript; else parcial+=' '+r[0].transcript; } $('texto').textContent=(final+parcial).trim(); };
+  reco.onerror=e=>{
+    const negado = IOS ? 'Microfone negado. No iPhone: toque em "aA" na barra de endereço, Configurações do Site, e permita o Microfone. Confira também Ajustes > Geral > Teclado > Ditado.'
+      : ANDROID ? 'Microfone negado. No Android: toque no cadeado ao lado do endereço, Permissões, Microfone, e permita. Depois toque no botão de novo.'
+      : 'Microfone negado. Libere o microfone para esta página no cadeado ao lado do endereço.';
+    const m={'not-allowed':negado,'service-not-allowed':negado,'no-speech':'Não ouvi nada. Toque no botão e fale perto do microfone.','audio-capture':'Não encontrei um microfone.','network':'Sem internet para o reconhecimento de voz.'};
+    erro(m[e.error] || 'Não consegui ouvir ('+e.error+'). Toque no botão para tentar de novo.');
+  };
+  reco.onend=()=>{
+    $('mic').classList.remove('ouvindo'); $('mictx').textContent='Tocar e falar'; reco=null;
+    const texto=(final+parcial).trim(); if(!texto) return;
+    const nums=falaParaNumeros(texto);
+    if(!nums.length){ $('msg').textContent='Ouvi "'+texto+'", mas não achei números. Toque no botão e tente de novo.'; return; }
+    $('texto').textContent=nums.join(', ');
+    if(volta){ $('msg').textContent='Entendi: '+nums.join(', ')+'. Voltando ao painel…'; mostrarVolta(nums); setTimeout(()=>{ location.href=destino(nums); },700); }
+    else { $('msg').textContent='Entendi: '+nums.join(', ')+'. Copie e cole no painel.'; }
+  };
+  try{ reco.start(); }catch(e){ erro('Toque no botão para começar a ouvir.'); }
+}
+$('mic').addEventListener('click',ouvir);
+mostrarVolta();
+// tenta começar a ouvir assim que a página abre; se o navegador exigir um toque, o botão faz isso
+try{ ouvir(); }catch(e){}
+</script>
+</body></html>
