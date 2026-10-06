@@ -81,13 +81,37 @@ let volta = params.get('volta') || '';
 const PERMITIDOS = [/^https:\/\/script\.google\.com\//i, /^https:\/\/[a-z0-9-]+\.schiffer\.com\.br\//i, /^https:\/\/claude\.ai\//i, /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i];
 if(!PERMITIDOS.some(r=>r.test(volta))) volta='';
 const ua=navigator.userAgent||'', IOS=/iPhone|iPad|iPod/.test(ua), ANDROID=/Android/.test(ua);
+const TXT_NEGADO = IOS ? 'Microfone BLOQUEADO para este site. No iPhone: toque em "aA" na barra de endereço, Configurações do Site, e permita o Microfone. Confira também Ajustes > Geral > Teclado > Ativar Ditado. Depois recarregue a página.'
+  : ANDROID ? 'Microfone BLOQUEADO para este site. No Android: toque no cadeado ao lado do endereço, Permissões, Microfone, e permita. Depois recarregue a página.'
+  : 'Microfone BLOQUEADO para este site. Libere o microfone no cadeado ao lado do endereço e recarregue a página.';
+/* Avisa assim que a página abre: o navegador não deixa nenhum site liberar o microfone sozinho,
+   mas dá para dizer logo se já está liberado, se vai pedir permissão ou se está bloqueado. */
+async function checarMicrofone(){
+  try{
+    if(!navigator.permissions || !navigator.permissions.query) return;
+    const p = await navigator.permissions.query({name:'microphone'});
+    const aplicar=()=>{
+      if(p.state==='denied') erro(TXT_NEGADO);
+      else if(p.state==='granted') $('msg').textContent='Microfone liberado. Toque no botão azul e fale o número da REQ.';
+      else $('msg').textContent='Toque no botão azul. Vai aparecer o pedido de microfone: escolha PERMITIR.';
+    };
+    aplicar(); p.onchange=aplicar;
+    return p.state;
+  }catch(e){ return null; }
+}
 let reco=null;
 
 function destino(nums){ return volta + (volta.includes('?')?'&':'?') + 'req=' + encodeURIComponent(nums.join(',')); }
 function mostrarVolta(nums){ const a=$('volta'); if(volta){ a.href=destino(nums||[]); a.hidden=false; } }
 function erro(txt){ $('msg').textContent=txt; $('mic').classList.remove('ouvindo'); $('mictx').textContent='Tocar e falar'; reco=null; mostrarVolta(); }
 
-function ouvir(){
+// No iPhone só o Safari tem reconhecimento de voz (Chrome, Firefox e navegadores dentro de apps como o WhatsApp não têm)
+const SEM_VOZ_IOS = IOS && (/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua) || !/Safari\//.test(ua));
+// No Android, navegadores dentro de apps (WhatsApp, Instagram...) e o Firefox também não têm reconhecimento de voz
+const SEM_VOZ_ANDROID = ANDROID && (/; wv\)/.test(ua) || /Firefox/.test(ua) || /FB_IAB|FBAN|Instagram|WhatsApp/.test(ua));
+function ouvir(auto){
+  if(SEM_VOZ_ANDROID){ erro('Este navegador não tem reconhecimento de voz. No Android, abra este endereço no Google Chrome: toque nos três pontinhos e escolha "Abrir no Chrome" (ou copie o endereço e cole no Chrome).'); return; }
+  if(SEM_VOZ_IOS){ erro('No iPhone, a voz só funciona no Safari. Toque nos três pontinhos (ou no ícone de compartilhar) e escolha "Abrir no Safari", ou copie este endereço e cole no Safari.'); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR){ erro('Este navegador não tem reconhecimento de voz. Use o Chrome (Android) ou o Safari (iPhone), ou volte ao painel e use o microfone do teclado.'); return; }
   if(reco){ reco.stop(); return; }
@@ -101,6 +125,8 @@ function ouvir(){
       : ANDROID ? 'Microfone negado. No Android: toque no cadeado ao lado do endereço, Permissões, Microfone, e permita. Depois toque no botão de novo.'
       : 'Microfone negado. Libere o microfone para esta página no cadeado ao lado do endereço.';
     const m={'not-allowed':negado,'service-not-allowed':negado,'no-speech':'Não ouvi nada. Toque no botão e fale perto do microfone.','audio-capture':'Não encontrei um microfone.','network':'Sem internet para o reconhecimento de voz.'};
+    // se a escuta começou sozinha (sem toque), o navegador pode recusar: isso não é "microfone negado", só falta o toque
+    if(auto && (e.error==='not-allowed' || e.error==='service-not-allowed')){ erro('Toque no botão azul e fale o número da REQ.'); return; }
     erro(m[e.error] || 'Não consegui ouvir ('+e.error+'). Toque no botão para tentar de novo.');
   };
   reco.onend=()=>{
@@ -114,9 +140,11 @@ function ouvir(){
   };
   try{ reco.start(); }catch(e){ erro('Toque no botão para começar a ouvir.'); }
 }
-$('mic').addEventListener('click',ouvir);
+$('mic').addEventListener('click',()=>ouvir(false));
 mostrarVolta();
-// tenta começar a ouvir assim que a página abre; se o navegador exigir um toque, o botão faz isso
-try{ ouvir(); }catch(e){}
+// Android: tenta ouvir assim que a página abre. iPhone: só começa depois do toque no botão (regra do Safari).
+if(IOS){ $('msg').textContent = SEM_VOZ_IOS ? '' : 'Toque no botão azul e fale o número da REQ.'; if(SEM_VOZ_IOS) ouvir(false); else checarMicrofone(); }
+else if(SEM_VOZ_ANDROID){ ouvir(false); }
+else { checarMicrofone().then(st=>{ if(st==='denied') return; try{ ouvir(true); }catch(e){} }); }   // bloqueado: mantém o aviso, sem tentar ouvir
 </script>
 </body></html>
