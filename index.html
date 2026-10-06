@@ -81,7 +81,11 @@ let volta = params.get('volta') || '';
 const PERMITIDOS = [/^https:\/\/script\.google\.com\//i, /^https:\/\/[a-z0-9-]+\.schiffer\.com\.br\//i, /^https:\/\/claude\.ai\//i, /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i];
 if(!PERMITIDOS.some(r=>r.test(volta))) volta='';
 const ua=navigator.userAgent||'', IOS=/iPhone|iPad|iPod/.test(ua), ANDROID=/Android/.test(ua);
-const TXT_NEGADO = IOS ? 'Microfone BLOQUEADO para este site. No iPhone: toque em "aA" na barra de endereço, Configurações do Site, e permita o Microfone. Confira também Ajustes > Geral > Teclado > Ativar Ditado. Depois recarregue a página.'
+// "Ditado desligado" (iPhone) e "voz do Google indisponível" (Android) são problemas do aparelho, diferentes da permissão do site
+const TXT_SERVICO = IOS ? 'O Ditado do iPhone está desligado. Ative em Ajustes > Geral > Teclado > Ativar Ditado. Isso é feito uma vez só; depois volte aqui e toque no botão.'
+  : ANDROID ? 'O reconhecimento de voz do Google está indisponível. Atualize os apps "Google" e "Serviços de voz do Google" na Play Store e tente de novo.'
+  : 'O reconhecimento de voz está indisponível neste navegador.';
+const TXT_NEGADO = IOS ? 'Microfone BLOQUEADO para este site. No iPhone: toque em "aA" na barra de endereço, Configurações do Site, e permita o Microfone. Depois recarregue a página.'
   : ANDROID ? 'Microfone BLOQUEADO para este site. No Android: toque no cadeado ao lado do endereço, Permissões, Microfone, e permita. Depois recarregue a página.'
   : 'Microfone BLOQUEADO para este site. Libere o microfone no cadeado ao lado do endereço e recarregue a página.';
 /* Avisa assim que a página abre: o navegador não deixa nenhum site liberar o microfone sozinho,
@@ -121,10 +125,7 @@ function ouvir(auto){
   $('msg').textContent='Se aparecer o pedido de microfone, toque em Permitir. Depois diga o número da REQ.';
   reco.onresult=e=>{ parcial=''; for(let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; if(r.isFinal) final+=' '+r[0].transcript; else parcial+=' '+r[0].transcript; } $('texto').textContent=(final+parcial).trim(); };
   reco.onerror=e=>{
-    const negado = IOS ? 'Microfone negado. No iPhone: toque em "aA" na barra de endereço, Configurações do Site, e permita o Microfone. Confira também Ajustes > Geral > Teclado > Ditado.'
-      : ANDROID ? 'Microfone negado. No Android: toque no cadeado ao lado do endereço, Permissões, Microfone, e permita. Depois toque no botão de novo.'
-      : 'Microfone negado. Libere o microfone para esta página no cadeado ao lado do endereço.';
-    const m={'not-allowed':negado,'service-not-allowed':negado,'no-speech':'Não ouvi nada. Toque no botão e fale perto do microfone.','audio-capture':'Não encontrei um microfone.','network':'Sem internet para o reconhecimento de voz.'};
+    const m={'not-allowed':TXT_NEGADO,'service-not-allowed':TXT_SERVICO,'no-speech':'Não ouvi nada. Toque no botão e fale perto do microfone.','audio-capture':'Não encontrei um microfone.','network':'Sem internet para o reconhecimento de voz.'};
     // se a escuta começou sozinha (sem toque), o navegador pode recusar: isso não é "microfone negado", só falta o toque
     if(auto && (e.error==='not-allowed' || e.error==='service-not-allowed')){ erro('Toque no botão azul e fale o número da REQ.'); return; }
     erro(m[e.error] || 'Não consegui ouvir ('+e.error+'). Toque no botão para tentar de novo.');
